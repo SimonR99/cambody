@@ -28,6 +28,12 @@ class HumanDetector:
             self.detector_func = lambda detector, img, **kwargs: self.sam3_run(
                 img, **kwargs
             )
+        elif name == "yolo":
+            from ultralytics import YOLO
+            path = kwargs.get("path", "yolov8n.pt")
+            print(f"########### Using human detector: YOLO ({path})...")
+            self.detector = YOLO(path)
+            self.detector_func = lambda detector, img, **kw: run_yolo(detector, img, **kw)
         else:
             raise NotImplementedError
         
@@ -95,6 +101,26 @@ def load_detectron2_vitdet(path=""):
 
     detector.eval()
     return detector
+
+
+def run_yolo(detector, img, det_cat_id: int = 0, bbox_thr: float = 0.3, **kwargs):
+    height, width = img.shape[:2]
+    results = detector(img, classes=[det_cat_id], verbose=False, conf=bbox_thr)
+    boxes = []
+    for result in results:
+        if result.boxes is None:
+            continue
+        for box in result.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+            # Expand box slightly (1.2x) to include full body
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            w, h = (x2 - x1) * 1.2, (y2 - y1) * 1.2
+            boxes.append([max(cx - w/2, 0), max(cy - h/2, 0), min(cx + w/2, width), min(cy + h/2, height)])
+    if not boxes:
+        return np.array([[0, 0, width, height]])
+    boxes = np.array(boxes)
+    sorted_indices = np.lexsort((boxes[:, 3], boxes[:, 2], boxes[:, 1], boxes[:, 0]))
+    return boxes[sorted_indices]
 
 
 def run_detectron2_vitdet(
